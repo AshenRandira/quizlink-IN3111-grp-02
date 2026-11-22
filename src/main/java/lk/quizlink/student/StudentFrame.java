@@ -24,6 +24,7 @@ import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.ListSelectionModel;
 import javax.swing.DefaultListModel;
 import javax.swing.table.DefaultTableModel;
@@ -88,6 +89,7 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         configureTextField(serverHostField, "Example: 192.168.1.10 or localhost");
         configureTextField(roomCodeField, "Six-character room code");
         configureTextField(displayNameField, "Name shown to other students");
+        configureAccessibility();
         participantList.setFont(participantList.getFont().deriveFont(14f));
         participantList.setForeground(TEXT);
         participantList.setBackground(SURFACE);
@@ -98,6 +100,9 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         cardPanel.add(createQuestionPanel(), QUESTION_CARD);
         cardPanel.add(createResultsPanel(), RESULTS_CARD);
         joinAnotherRoomButton.addActionListener(event -> showJoinScreen());
+        serverHostField.addActionListener(event -> joinFromForm());
+        roomCodeField.addActionListener(event -> joinFromForm());
+        displayNameField.addActionListener(event -> joinFromForm());
         add(cardPanel);
         showJoinScreen();
     }
@@ -354,7 +359,12 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         content.add(answerStatusLabel);
         panel.add(createHeader(new JLabel("Current question"),
                 "Choose one answer, then submit it before time runs out."), BorderLayout.NORTH);
-        panel.add(createContentCard(content), BorderLayout.CENTER);
+        JScrollPane questionScrollPane = new JScrollPane(content);
+        questionScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        questionScrollPane.setHorizontalScrollBarPolicy(
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        questionScrollPane.getViewport().setBackground(SURFACE);
+        panel.add(createContentCard(questionScrollPane), BorderLayout.CENTER);
         panel.add(createFooter("Your answer is sent once and confirmed by the server."), BorderLayout.SOUTH);
         return panel;
     }
@@ -470,6 +480,25 @@ public final class StudentFrame extends JFrame implements StudentClientView {
                 BorderFactory.createEmptyBorder(8, 10, 8, 10)));
     }
 
+    /** Adds keyboard shortcuts and screen-reader descriptions for common student actions. */
+    private void configureAccessibility() {
+        serverHostField.getAccessibleContext().setAccessibleName("Server address");
+        roomCodeField.getAccessibleContext().setAccessibleName("Room code");
+        displayNameField.getAccessibleContext().setAccessibleName("Display name");
+        joinButton.setMnemonic('J');
+        joinButton.getAccessibleContext().setAccessibleDescription(
+                "Connect to the specified QuizLink room.");
+        submitAnswerButton.setMnemonic('S');
+        submitAnswerButton.getAccessibleContext().setAccessibleDescription(
+                "Submit the selected answer to the quiz server.");
+        leaveRoomButton.setMnemonic('L');
+        leaveRoomButton.getAccessibleContext().setAccessibleDescription(
+                "Leave the current quiz room and return to the join screen.");
+        joinAnotherRoomButton.setMnemonic('A');
+        joinAnotherRoomButton.getAccessibleContext().setAccessibleDescription(
+                "Return to the join screen after viewing final results.");
+    }
+
     /** Styles an answer as a full-width card and highlights the selected option. */
     private void styleAnswerOption(JRadioButton option) {
         boolean selected = option.getModel().isSelected();
@@ -486,6 +515,7 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         JLabel formLabel = new JLabel(label + ":");
         formLabel.setForeground(TEXT);
         formLabel.setFont(formLabel.getFont().deriveFont(Font.BOLD));
+        formLabel.setLabelFor(field);
         form.add(formLabel, constraints);
         constraints.gridx = 1;
         form.add(field, constraints);
