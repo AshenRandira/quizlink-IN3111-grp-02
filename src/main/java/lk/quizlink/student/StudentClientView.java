@@ -1,6 +1,7 @@
 package lk.quizlink.student;
 
 import java.util.List;
+import java.util.function.BiConsumer;
 import lk.quizlink.common.model.LeaderboardEntry;
 import lk.quizlink.common.model.QuestionView;
 
@@ -11,6 +12,12 @@ public interface StudentClientView {
     void showLobbyScreen(StudentJoinRequest request);
 
     void showQuestion(QuestionView question, int questionNumber, int totalQuestions);
+
+    void setAnswerHandler(BiConsumer<String, Integer> answerHandler);
+
+    void showAnswerSubmitting(String questionId);
+
+    void showAnswerResult(String questionId, boolean accepted, String reason);
 
     void showLeaderboard(List<LeaderboardEntry> entries, boolean finalResults);
 

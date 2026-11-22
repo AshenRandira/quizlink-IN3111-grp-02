@@ -129,14 +129,142 @@ class StudentClientControllerTest {
         }
     }
 
+    @Test
+    void sendsSelectedAnswerAndShowsServerAcknowledgement() throws Exception {
+        TestView view = new TestView(3);
+        AtomicReference<Throwable> serverFailure = new AtomicReference<>();
+        MessageCodec codec = new MessageCodec();
+        Gson gson = new Gson();
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread serverThread = new Thread(() -> {
+                try (Socket socket = server.accept();
+                     BufferedReader reader = new BufferedReader(new InputStreamReader(
+                             socket.getInputStream(), StandardCharsets.UTF_8));
+                     BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                             socket.getOutputStream(), StandardCharsets.UTF_8))) {
+                    Message join = codec.decode(reader.readLine());
+                    writer.write(codec.encode(Message.of(MessageType.ROOM_JOINED,
+                            join.requestId(), new JsonObject())));
+
+                    JsonObject questionPayload = new JsonObject();
+                    questionPayload.add("question", gson.toJsonTree(new QuestionView(
+                            "q1", "Which protocol is reliable?", List.of("UDP", "TCP"), 20, 10)));
+                    questionPayload.addProperty("questionNumber", 1);
+                    questionPayload.addProperty("totalQuestions", 1);
+                    writer.write(codec.encode(Message.of(MessageType.QUESTION, "", questionPayload)));
+                    writer.flush();
+
+                    Message answer = codec.decode(reader.readLine());
+                    assertEquals(MessageType.SUBMIT_ANSWER, answer.type());
+                    assertEquals("AB12CD", answer.payload().get("roomCode").getAsString());
+                    assertEquals("q1", answer.payload().get("questionId").getAsString());
+                    assertEquals(1, answer.payload().get("selectedOptionIndex").getAsInt());
+
+                    JsonObject resultPayload = new JsonObject();
+                    resultPayload.addProperty("questionId", "q1");
+                    resultPayload.addProperty("accepted", true);
+                    writer.write(codec.encode(Message.of(MessageType.ANSWER_RESULT,
+                            answer.requestId(), resultPayload)));
+                    writer.flush();
+                } catch (Throwable failure) {
+                    serverFailure.set(failure);
+                }
+            });
+            serverThread.start();
+
+            try (StudentClientController controller = new StudentClientController(
+                    view, server.getLocalPort(), Runnable::run)) {
+                controller.connectAndJoin("127.0.0.1",
+                        new StudentJoinRequest("AB12CD", "Student 1"));
+                assertTrue(view.questionShown.await(3, TimeUnit.SECONDS));
+                controller.submitAnswer("q1", 1);
+                assertTrue(view.completed.await(3, TimeUnit.SECONDS));
+                assertEquals("q1", view.answerQuestionId);
+                assertTrue(view.answerAccepted);
+                assertNull(view.answerReason);
+            }
+
+            serverThread.join(3_000);
+            assertTrue(!serverThread.isAlive(), "test server did not finish");
+            if (serverFailure.get() != null) {
+                throw new AssertionError("test server failed", serverFailure.get());
+            }
+        }
+    }
+
+    @Test
+    void showsReasonWhenServerRejectsAnAnswer() throws Exception {
+        TestView view = new TestView(3);
+        AtomicReference<Throwable> serverFailure = new AtomicReference<>();
+        MessageCodec codec = new MessageCodec();
+        Gson gson = new Gson();
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread serverThread = new Thread(() -> {
+                try (Socket socket = server.accept();
+                     BufferedReader reader = new BufferedReader(new InputStreamReader(
+                             socket.getInputStream(), StandardCharsets.UTF_8));
+                     BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                             socket.getOutputStream(), StandardCharsets.UTF_8))) {
+                    Message join = codec.decode(reader.readLine());
+                    writer.write(codec.encode(Message.of(MessageType.ROOM_JOINED,
+                            join.requestId(), new JsonObject())));
+
+                    JsonObject questionPayload = new JsonObject();
+                    questionPayload.add("question", gson.toJsonTree(new QuestionView(
+                            "q1", "Which protocol is reliable?", List.of("UDP", "TCP"), 20, 10)));
+                    questionPayload.addProperty("questionNumber", 1);
+                    questionPayload.addProperty("totalQuestions", 1);
+                    writer.write(codec.encode(Message.of(MessageType.QUESTION, "", questionPayload)));
+                    writer.flush();
+
+                    Message answer = codec.decode(reader.readLine());
+                    JsonObject resultPayload = new JsonObject();
+                    resultPayload.addProperty("questionId", "q1");
+                    resultPayload.addProperty("accepted", false);
+                    resultPayload.addProperty("reason", "Question time has expired");
+                    writer.write(codec.encode(Message.of(MessageType.ANSWER_RESULT,
+                            answer.requestId(), resultPayload)));
+                    writer.flush();
+                } catch (Throwable failure) {
+                    serverFailure.set(failure);
+                }
+            });
+            serverThread.start();
+
+            try (StudentClientController controller = new StudentClientController(
+                    view, server.getLocalPort(), Runnable::run)) {
+                controller.connectAndJoin("127.0.0.1",
+                        new StudentJoinRequest("AB12CD", "Student 1"));
+                assertTrue(view.questionShown.await(3, TimeUnit.SECONDS));
+                controller.submitAnswer("q1", 0);
+                assertTrue(view.completed.await(3, TimeUnit.SECONDS));
+                assertEquals("q1", view.answerQuestionId);
+                assertTrue(!view.answerAccepted);
+                assertEquals("Question time has expired", view.answerReason);
+            }
+
+            serverThread.join(3_000);
+            assertTrue(!serverThread.isAlive(), "test server did not finish");
+            if (serverFailure.get() != null) {
+                throw new AssertionError("test server failed", serverFailure.get());
+            }
+        }
+    }
+
     private static final class TestView implements StudentClientView {
         private final CountDownLatch completed;
+        private final CountDownLatch questionShown = new CountDownLatch(1);
         private StudentJoinRequest joinedRequest;
         private QuestionView question;
         private int questionNumber;
         private int totalQuestions;
         private List<LeaderboardEntry> entries;
         private boolean finalResults;
+        private String answerQuestionId;
+        private boolean answerAccepted;
+        private String answerReason;
         private String errorMessage;
 
         private TestView(int expectedEvents) {
@@ -158,6 +286,23 @@ class StudentClientControllerTest {
             this.question = question;
             this.questionNumber = questionNumber;
             this.totalQuestions = totalQuestions;
+            completed.countDown();
+            questionShown.countDown();
+        }
+
+        @Override
+        public void setAnswerHandler(java.util.function.BiConsumer<String, Integer> answerHandler) {
+        }
+
+        @Override
+        public void showAnswerSubmitting(String questionId) {
+        }
+
+        @Override
+        public void showAnswerResult(String questionId, boolean accepted, String reason) {
+            answerQuestionId = questionId;
+            answerAccepted = accepted;
+            answerReason = reason;
             completed.countDown();
         }
 

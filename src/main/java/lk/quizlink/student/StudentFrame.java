@@ -49,9 +49,14 @@ public final class StudentFrame extends JFrame implements StudentClientView {
     private final JLabel questionTextLabel = new JLabel();
     private final JPanel optionsPanel = new JPanel();
     private final JLabel answerStatusLabel = new JLabel(" ");
+    private final JButton submitAnswerButton = createPrimaryButton("Submit answer");
     private final JLabel resultsTitleLabel = new JLabel("Final leaderboard");
     private BiConsumer<String, StudentJoinRequest> joinHandler =
             (host, request) -> showConnectionError("Student client is not configured");
+    private BiConsumer<String, Integer> answerHandler =
+            (questionId, optionIndex) -> showConnectionError("Student client is not configured");
+    private String displayedQuestionId;
+    private int selectedOptionIndex = -1;
 
     public StudentFrame() {
         super("QuizLink Student");
@@ -83,6 +88,14 @@ public final class StudentFrame extends JFrame implements StudentClientView {
     }
 
     @Override
+    public void setAnswerHandler(BiConsumer<String, Integer> answerHandler) {
+        if (answerHandler == null) {
+            throw new IllegalArgumentException("answerHandler is required");
+        }
+        this.answerHandler = answerHandler;
+    }
+
+    @Override
     public void showConnecting() {
         joinButton.setEnabled(false);
         joinErrorLabel.setForeground(Color.DARK_GRAY);
@@ -109,6 +122,9 @@ public final class StudentFrame extends JFrame implements StudentClientView {
     /** Displays a server-provided question without exposing its answer key. */
     @Override
     public void showQuestion(QuestionView question, int questionNumber, int totalQuestions) {
+        displayedQuestionId = question.id();
+        selectedOptionIndex = -1;
+        submitAnswerButton.setEnabled(false);
         questionNumberLabel.setText("Question " + questionNumber + " of " + totalQuestions);
         questionTextLabel.setText("<html><div style='width:560px'>" + escapeHtml(question.text()) + "</div></html>");
         optionsPanel.removeAll();
@@ -116,14 +132,40 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         for (int index = 0; index < question.options().size(); index++) {
             JRadioButton option = new JRadioButton((index + 1) + ". " + question.options().get(index));
             option.setActionCommand(Integer.toString(index));
-            option.addActionListener(event -> answerStatusLabel.setText("Selected option " + (Integer.parseInt(event.getActionCommand()) + 1)));
+            option.addActionListener(event -> {
+                selectedOptionIndex = Integer.parseInt(event.getActionCommand());
+                submitAnswerButton.setEnabled(true);
+                answerStatusLabel.setText("Selected option " + (selectedOptionIndex + 1));
+            });
             optionGroup.add(option);
             optionsPanel.add(option);
         }
-        answerStatusLabel.setText("Choose an answer. Submission will be connected to the TCP client next.");
+        answerStatusLabel.setText("Choose an answer, then submit it to the server.");
         optionsPanel.revalidate();
         optionsPanel.repaint();
         cards.show(cardPanel, QUESTION_CARD);
+    }
+
+    @Override
+    public void showAnswerSubmitting(String questionId) {
+        if (questionId.equals(displayedQuestionId)) {
+            submitAnswerButton.setEnabled(false);
+            answerStatusLabel.setText("Submitting your answer...");
+        }
+    }
+
+    @Override
+    public void showAnswerResult(String questionId, boolean accepted, String reason) {
+        if (!questionId.equals(displayedQuestionId)) {
+            return;
+        }
+        if (accepted) {
+            answerStatusLabel.setText("Answer accepted. Waiting for the next question...");
+        } else {
+            answerStatusLabel.setText(reason == null || reason.isBlank()
+                    ? "Answer was not accepted." : "Answer not accepted: " + reason);
+        }
+        submitAnswerButton.setEnabled(false);
     }
 
     /** Displays a server-provided leaderboard or final result. */
@@ -217,6 +259,10 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         content.add(Box.createVerticalStrut(18));
         content.add(optionsPanel);
         content.add(Box.createVerticalStrut(18));
+        submitAnswerButton.setAlignmentX(LEFT_ALIGNMENT);
+        submitAnswerButton.addActionListener(event -> submitSelectedAnswer());
+        content.add(submitAnswerButton);
+        content.add(Box.createVerticalStrut(10));
         content.add(answerStatusLabel);
         panel.add(createHeader(new JLabel("Current question")), BorderLayout.NORTH);
         panel.add(content, BorderLayout.CENTER);
@@ -286,6 +332,14 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         } catch (IllegalArgumentException exception) {
             showConnectionError(exception.getMessage());
         }
+    }
+
+    private void submitSelectedAnswer() {
+        if (displayedQuestionId == null || selectedOptionIndex < 0) {
+            answerStatusLabel.setText("Select an answer before submitting.");
+            return;
+        }
+        answerHandler.accept(displayedQuestionId, selectedOptionIndex);
     }
 
     private static String escapeHtml(String value) {
