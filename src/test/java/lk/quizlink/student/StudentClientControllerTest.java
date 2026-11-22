@@ -149,6 +149,7 @@ class StudentClientControllerTest {
                             join.requestId(), new JsonObject())));
 
                     JsonObject questionPayload = new JsonObject();
+                    questionPayload.addProperty("roomCode", "AB12CD");
                     questionPayload.add("question", gson.toJsonTree(new QuestionView(
                             "q1", "Which protocol is reliable?", List.of("UDP", "TCP"), 20, 10)));
                     questionPayload.addProperty("questionNumber", 1);
@@ -213,6 +214,7 @@ class StudentClientControllerTest {
                             join.requestId(), new JsonObject())));
 
                     JsonObject questionPayload = new JsonObject();
+                    questionPayload.addProperty("roomCode", "AB12CD");
                     questionPayload.add("question", gson.toJsonTree(new QuestionView(
                             "q1", "Which protocol is reliable?", List.of("UDP", "TCP"), 20, 10)));
                     questionPayload.addProperty("questionNumber", 1);
@@ -274,6 +276,7 @@ class StudentClientControllerTest {
                             join.requestId(), new JsonObject())));
 
                     JsonObject participantsPayload = new JsonObject();
+                    participantsPayload.addProperty("roomCode", "AB12CD");
                     participantsPayload.add("participants", gson.toJsonTree(List.of(
                             new Participant("p1", "Student 1"),
                             new Participant("p2", "Student 2"))));
@@ -311,11 +314,60 @@ class StudentClientControllerTest {
         }
     }
 
+    @Test
+    void rejectsRoomScopedEventForAnotherRoom() throws Exception {
+        TestView view = new TestView(1);
+        AtomicReference<Throwable> serverFailure = new AtomicReference<>();
+        MessageCodec codec = new MessageCodec();
+        Gson gson = new Gson();
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread serverThread = new Thread(() -> {
+                try (Socket socket = server.accept();
+                     BufferedReader reader = new BufferedReader(new InputStreamReader(
+                             socket.getInputStream(), StandardCharsets.UTF_8));
+                     BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                             socket.getOutputStream(), StandardCharsets.UTF_8))) {
+                    Message join = codec.decode(reader.readLine());
+                    writer.write(codec.encode(Message.of(MessageType.ROOM_JOINED,
+                            join.requestId(), new JsonObject())));
+
+                    JsonObject participantsPayload = new JsonObject();
+                    participantsPayload.addProperty("roomCode", "OTHER1");
+                    participantsPayload.add("participants", gson.toJsonTree(List.of(
+                            new Participant("p1", "Student 1"))));
+                    writer.write(codec.encode(Message.of(MessageType.PARTICIPANTS_UPDATED,
+                            "", participantsPayload)));
+                    writer.flush();
+                } catch (Throwable failure) {
+                    serverFailure.set(failure);
+                }
+            });
+            serverThread.start();
+
+            try (StudentClientController controller = new StudentClientController(
+                    view, server.getLocalPort(), Runnable::run)) {
+                controller.connectAndJoin("127.0.0.1",
+                        new StudentJoinRequest("AB12CD", "Student 1"));
+                assertTrue(view.connectionErrorShown.await(3, TimeUnit.SECONDS));
+                assertEquals("Server event was for a different quiz room", view.errorMessage);
+                assertNull(view.participants);
+            }
+
+            serverThread.join(3_000);
+            assertTrue(!serverThread.isAlive(), "test server did not finish");
+            if (serverFailure.get() != null) {
+                throw new AssertionError("test server failed", serverFailure.get());
+            }
+        }
+    }
+
     private static final class TestView implements StudentClientView {
         private final CountDownLatch completed;
         private final CountDownLatch questionShown = new CountDownLatch(1);
         private final CountDownLatch participantsShown = new CountDownLatch(1);
         private final CountDownLatch returnedToJoin = new CountDownLatch(1);
+        private final CountDownLatch connectionErrorShown = new CountDownLatch(1);
         private StudentJoinRequest joinedRequest;
         private QuestionView question;
         private int questionNumber;
@@ -393,6 +445,7 @@ class StudentClientControllerTest {
         @Override
         public void showConnectionError(String message) {
             errorMessage = message;
+            connectionErrorShown.countDown();
             completed.countDown();
         }
     }

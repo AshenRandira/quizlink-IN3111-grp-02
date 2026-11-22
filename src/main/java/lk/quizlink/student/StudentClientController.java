@@ -129,10 +129,15 @@ public final class StudentClientController implements AutoCloseable {
             return switch (message.type()) {
                 case QUESTION -> {
                     JsonObject payload = message.payload();
+                    validateEventRoom(payload);
                     QuestionView question = GSON.fromJson(
                             requiredObject(payload, "question"), QuestionView.class);
                     int questionNumber = requiredInt(payload, "questionNumber");
                     int totalQuestions = requiredInt(payload, "totalQuestions");
+                    if (questionNumber < 1 || totalQuestions < questionNumber) {
+                        throw new IllegalArgumentException(
+                                "questionNumber and totalQuestions are inconsistent");
+                    }
                     dispatch(() -> view.showQuestion(question, questionNumber, totalQuestions));
                     yield true;
                 }
@@ -152,14 +157,18 @@ public final class StudentClientController implements AutoCloseable {
                     yield true;
                 }
                 case PARTICIPANTS_UPDATED -> {
+                    JsonObject payload = message.payload();
+                    validateEventRoom(payload);
                     List<Participant> participants = List.copyOf(GSON.fromJson(
-                            requiredArray(message.payload(), "participants"), PARTICIPANT_TYPE));
+                            requiredArray(payload, "participants"), PARTICIPANT_TYPE));
                     dispatch(() -> view.showParticipants(participants));
                     yield true;
                 }
                 case LEADERBOARD, QUIZ_ENDED -> {
+                    JsonObject payload = message.payload();
+                    validateEventRoom(payload);
                     List<LeaderboardEntry> entries = List.copyOf(GSON.fromJson(
-                            message.payload().getAsJsonArray("entries"), LEADERBOARD_TYPE));
+                            requiredArray(payload, "entries"), LEADERBOARD_TYPE));
                     boolean finalResults = message.type() == MessageType.QUIZ_ENDED;
                     dispatch(() -> view.showLeaderboard(entries, finalResults));
                     yield !finalResults;
@@ -170,6 +179,15 @@ public final class StudentClientController implements AutoCloseable {
             };
         } catch (IllegalArgumentException | IllegalStateException | NullPointerException exception) {
             throw new IOException("Invalid payload for server message " + message.type(), exception);
+        }
+    }
+
+    /** Ensures a room-scoped server event belongs to this student's active room. */
+    private void validateEventRoom(JsonObject payload) throws IOException {
+        String eventRoomCode = requiredString(payload, "roomCode");
+        String joinedRoomCode = activeRoomCode;
+        if (joinedRoomCode == null || !joinedRoomCode.equals(eventRoomCode)) {
+            throw new IOException("Server event was for a different quiz room");
         }
     }
 
