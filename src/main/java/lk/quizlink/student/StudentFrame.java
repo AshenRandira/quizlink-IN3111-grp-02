@@ -107,6 +107,7 @@ public final class StudentFrame extends JFrame implements StudentClientView {
     }
 
     /** Displays a server-provided question without exposing its answer key. */
+    @Override
     public void showQuestion(QuestionView question, int questionNumber, int totalQuestions) {
         questionNumberLabel.setText("Question " + questionNumber + " of " + totalQuestions);
         questionTextLabel.setText("<html><div style='width:560px'>" + escapeHtml(question.text()) + "</div></html>");
@@ -125,8 +126,10 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         cards.show(cardPanel, QUESTION_CARD);
     }
 
-    /** Displays server-provided final results. */
-    public void showResults(List<LeaderboardEntry> entries) {
+    /** Displays a server-provided leaderboard or final result. */
+    @Override
+    public void showLeaderboard(List<LeaderboardEntry> entries, boolean finalResults) {
+        resultsTitleLabel.setText(finalResults ? "Final leaderboard" : "Leaderboard");
         DefaultTableModel tableModel = new DefaultTableModel(new Object[]{"Rank", "Student", "Score"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {

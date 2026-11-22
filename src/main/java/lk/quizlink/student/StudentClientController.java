@@ -1,24 +1,35 @@
 package lk.quizlink.student;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.reflect.TypeToken;
 import java.io.IOException;
+import java.lang.reflect.Type;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import javax.swing.SwingUtilities;
+import lk.quizlink.common.model.LeaderboardEntry;
+import lk.quizlink.common.model.QuestionView;
 import lk.quizlink.common.protocol.Message;
 import lk.quizlink.common.protocol.MessageType;
 import lk.quizlink.common.protocol.ProtocolConstants;
 
 /** Coordinates background network operations with the student Swing view. */
 public final class StudentClientController implements AutoCloseable {
+    private static final Gson GSON = new Gson();
+    private static final Type LEADERBOARD_TYPE =
+            new TypeToken<List<LeaderboardEntry>>() { }.getType();
+
     private final StudentClientView view;
     private final int serverPort;
     private final Consumer<Runnable> uiDispatcher;
     private final ExecutorService networkExecutor;
     private volatile StudentTcpClient client;
+    private volatile boolean closed;
 
     public StudentClientController(StudentClientView view) {
         this(view, ProtocolConstants.TCP_PORT, SwingUtilities::invokeLater);
@@ -59,9 +70,12 @@ public final class StudentClientController implements AutoCloseable {
 
             Message response = connectedClient.receive();
             handleJoinResponse(response, requestId, request);
+            receiveServerEvents(connectedClient);
         } catch (IOException | RuntimeException exception) {
             closeCurrentClientQuietly();
-            dispatch(() -> view.showConnectionError(readableMessage(exception)));
+            if (!closed) {
+                dispatch(() -> view.showConnectionError(readableMessage(exception)));
+            }
         }
     }
 
@@ -78,6 +92,60 @@ public final class StudentClientController implements AutoCloseable {
             throw new IOException(errorMessage(response.payload()));
         }
         throw new IOException("Unexpected server reply: " + response.type());
+    }
+
+    private void receiveServerEvents(StudentTcpClient connectedClient) throws IOException {
+        while (!closed) {
+            Message message = connectedClient.receive();
+            if (!handleServerEvent(message)) {
+                return;
+            }
+        }
+    }
+
+    private boolean handleServerEvent(Message message) throws IOException {
+        try {
+            return switch (message.type()) {
+                case QUESTION -> {
+                    JsonObject payload = message.payload();
+                    QuestionView question = GSON.fromJson(
+                            requiredObject(payload, "question"), QuestionView.class);
+                    int questionNumber = requiredInt(payload, "questionNumber");
+                    int totalQuestions = requiredInt(payload, "totalQuestions");
+                    dispatch(() -> view.showQuestion(question, questionNumber, totalQuestions));
+                    yield true;
+                }
+                case LEADERBOARD, QUIZ_ENDED -> {
+                    List<LeaderboardEntry> entries = List.copyOf(GSON.fromJson(
+                            message.payload().getAsJsonArray("entries"), LEADERBOARD_TYPE));
+                    boolean finalResults = message.type() == MessageType.QUIZ_ENDED;
+                    dispatch(() -> view.showLeaderboard(entries, finalResults));
+                    yield !finalResults;
+                }
+                case PARTICIPANTS_UPDATED, ANSWER_RESULT, PONG -> true;
+                case ERROR -> throw new IOException(errorMessage(message.payload()));
+                default -> throw new IOException("Unexpected server message: " + message.type());
+            };
+        } catch (IllegalArgumentException | IllegalStateException | NullPointerException exception) {
+            throw new IOException("Invalid payload for server message " + message.type(), exception);
+        }
+    }
+
+    private static JsonObject requiredObject(JsonObject payload, String fieldName) {
+        JsonElement element = payload.get(fieldName);
+        if (element == null || !element.isJsonObject()) {
+            throw new IllegalArgumentException(fieldName + " must be an object");
+        }
+        return element.getAsJsonObject();
+    }
+
+    private static int requiredInt(JsonObject payload, String fieldName) {
+        JsonElement element = payload.get(fieldName);
+        if (element == null || !element.isJsonPrimitive()
+                || !element.getAsJsonPrimitive().isNumber()) {
+            throw new IllegalArgumentException(fieldName + " must be a number");
+        }
+        return element.getAsInt();
     }
 
     private static String errorMessage(JsonObject payload) {
@@ -117,6 +185,7 @@ public final class StudentClientController implements AutoCloseable {
 
     @Override
     public void close() {
+        closed = true;
         closeCurrentClientQuietly();
         networkExecutor.shutdownNow();
     }
