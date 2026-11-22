@@ -4,7 +4,9 @@ A Java desktop quiz platform for computers on the same LAN. A host manages quizz
 
 ## Current status
 
-This repository contains the **initial shared foundation**, not a working quiz application. It includes a Maven build, shared models, a draft JSON protocol, module packages, launch placeholders, protocol tests and GitHub Actions. TCP/NIO transport, UDP discovery, lobby, quiz engine, storage and multicast are still to be implemented by their module owners.
+The shared foundation is in place and the student client is implemented as an incremental feature branch. It provides a Swing join form, manual server-host entry, lobby participant list, question display, answer submission, leaderboard display, leaving a room and returning to the join form after final results. It uses a blocking TCP `Socket` on background threads and the shared JSON message protocol.
+
+The central NIO server, UDP discovery, authoritative lobby management, quiz engine, host dashboard, JSON storage and multicast remain separate team modules. Until those modules are integrated, the student application can be launched and tested against a compatible server but does not constitute a complete standalone quiz system.
 
 ## Technology
 
@@ -22,7 +24,7 @@ mvn clean verify
 
 Import `pom.xml` as a Maven project in IntelliJ IDEA, Eclipse or VS Code. Set the project language level to Java 17. The first build needs internet access to download dependencies.
 
-## Run the launch placeholders
+## Run the applications
 
 Use separate terminals from the repository root:
 
@@ -32,7 +34,9 @@ mvn compile exec:java -Dexec.mainClass=lk.quizlink.host.HostApplication
 mvn compile exec:java -Dexec.mainClass=lk.quizlink.student.StudentApplication
 ```
 
-The server prints its foundation status and exits. The host and student launchers show informational Swing dialogs; these require a graphical desktop. They do not connect to a server yet.
+The server and host launchers remain module placeholders until their owners complete them. The student launcher opens the working Swing client and requires a graphical desktop.
+
+To join a running compatible server, enter its LAN IP address (or `localhost` when it runs on the same computer), the six-character room code and a display name. The client connects to TCP port `5000` by default. It keeps network reads and writes off Swing's Event Dispatch Thread, validates room-scoped events against the joined room code, and only displays question data as `QuestionView` so the correct answer is never sent to students.
 
 ## Package ownership
 

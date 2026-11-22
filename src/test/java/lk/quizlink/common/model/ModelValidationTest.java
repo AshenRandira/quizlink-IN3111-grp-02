@@ -2,6 +2,9 @@ package lk.quizlink.common.model;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -93,6 +96,42 @@ class ModelValidationTest {
                 .getAsJsonObject().get("correctOptionIndex").getAsInt());
 
         assertEquals(original, gson.fromJson(gson.toJson(original), Quiz.class));
+    }
+
+    @Test
+    void deserializesTrackedSampleQuizUsingValidatedModels() throws IOException {
+        String sampleJson = Files.readString(Path.of("data", "quizzes", "sample-quiz.json"));
+
+        Quiz quiz = new Gson().fromJson(sampleJson, Quiz.class);
+
+        assertEquals("network-basics", quiz.id());
+        assertEquals("Computer Networking Basics", quiz.title());
+        assertEquals(1, quiz.questions().size());
+        assertEquals("q1", quiz.questions().get(0).id());
+        assertEquals(1, quiz.questions().get(0).correctOptionIndex());
+    }
+
+    @Test
+    void rejectsInvalidQuizJsonDuringDeserialization() {
+        String invalidQuizJson = """
+                {
+                  "id": "quiz-1",
+                  "title": "Invalid quiz",
+                  "questions": [
+                    {
+                      "id": "q1",
+                      "text": "Question",
+                      "options": ["Only option"],
+                      "correctOptionIndex": 1,
+                      "timeLimitSeconds": 20,
+                      "points": 10
+                    }
+                  ]
+                }
+                """;
+
+        assertThrows(RuntimeException.class,
+                () -> new Gson().fromJson(invalidQuizJson, Quiz.class));
     }
 
     private static Question validQuestion() {
