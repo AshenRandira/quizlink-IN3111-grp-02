@@ -9,6 +9,7 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.util.List;
+import java.util.function.BiConsumer;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -26,8 +27,8 @@ import javax.swing.table.DefaultTableModel;
 import lk.quizlink.common.model.LeaderboardEntry;
 import lk.quizlink.common.model.QuestionView;
 
-/** First Swing shell for the student client. Networking is added in a later slice. */
-public final class StudentFrame extends JFrame {
+/** Student Swing shell; network work is delegated to {@link StudentClientController}. */
+public final class StudentFrame extends JFrame implements StudentClientView {
     private static final String JOIN_CARD = "join";
     private static final String LOBBY_CARD = "lobby";
     private static final String QUESTION_CARD = "question";
@@ -37,8 +38,10 @@ public final class StudentFrame extends JFrame {
 
     private final CardLayout cards = new CardLayout();
     private final JPanel cardPanel = new JPanel(cards);
+    private final JTextField serverHostField = new JTextField("localhost", 18);
     private final JTextField roomCodeField = new JTextField(18);
     private final JTextField displayNameField = new JTextField(18);
+    private final JButton joinButton = createPrimaryButton("Join room");
     private final JLabel joinErrorLabel = new JLabel(" ");
     private final JLabel lobbyRoomLabel = new JLabel();
     private final JLabel lobbyNameLabel = new JLabel();
@@ -47,6 +50,8 @@ public final class StudentFrame extends JFrame {
     private final JPanel optionsPanel = new JPanel();
     private final JLabel answerStatusLabel = new JLabel(" ");
     private final JLabel resultsTitleLabel = new JLabel("Final leaderboard");
+    private BiConsumer<String, StudentJoinRequest> joinHandler =
+            (host, request) -> showConnectionError("Student client is not configured");
 
     public StudentFrame() {
         super("QuizLink Student");
@@ -65,15 +70,40 @@ public final class StudentFrame extends JFrame {
 
     /** Shows the form used before the TCP client sends a join request. */
     public void showJoinScreen() {
+        joinButton.setEnabled(true);
         cards.show(cardPanel, JOIN_CARD);
         roomCodeField.requestFocusInWindow();
     }
 
-    /** Shows a local waiting state until the server confirms the join. */
+    public void setJoinHandler(BiConsumer<String, StudentJoinRequest> joinHandler) {
+        if (joinHandler == null) {
+            throw new IllegalArgumentException("joinHandler is required");
+        }
+        this.joinHandler = joinHandler;
+    }
+
+    @Override
+    public void showConnecting() {
+        joinButton.setEnabled(false);
+        joinErrorLabel.setForeground(Color.DARK_GRAY);
+        joinErrorLabel.setText("Connecting to the QuizLink server...");
+    }
+
+    /** Shows the waiting state after the server confirms the join. */
+    @Override
     public void showLobbyScreen(StudentJoinRequest request) {
+        joinButton.setEnabled(true);
         lobbyRoomLabel.setText("Room: " + request.roomCode());
         lobbyNameLabel.setText("Name: " + request.displayName());
         cards.show(cardPanel, LOBBY_CARD);
+    }
+
+    @Override
+    public void showConnectionError(String message) {
+        joinButton.setEnabled(true);
+        joinErrorLabel.setForeground(new Color(170, 35, 35));
+        joinErrorLabel.setText(message);
+        cards.show(cardPanel, JOIN_CARD);
     }
 
     /** Displays a server-provided question without exposing its answer key. */
@@ -126,22 +156,22 @@ public final class StudentFrame extends JFrame {
         constraints.insets = new Insets(7, 7, 7, 7);
         constraints.fill = GridBagConstraints.HORIZONTAL;
 
-        addFormRow(form, constraints, 0, "Room code", roomCodeField);
-        addFormRow(form, constraints, 1, "Display name", displayNameField);
+        addFormRow(form, constraints, 0, "Server address", serverHostField);
+        addFormRow(form, constraints, 1, "Room code", roomCodeField);
+        addFormRow(form, constraints, 2, "Display name", displayNameField);
 
-        JButton joinButton = createPrimaryButton("Join room");
         joinButton.addActionListener(event -> joinFromForm());
         constraints.gridx = 1;
-        constraints.gridy = 2;
+        constraints.gridy = 3;
         form.add(joinButton, constraints);
 
         joinErrorLabel.setForeground(new Color(170, 35, 35));
-        constraints.gridy = 3;
+        constraints.gridy = 4;
         form.add(joinErrorLabel, constraints);
 
         panel.add(createHeader(new JLabel("Join a QuizLink room")), BorderLayout.NORTH);
         panel.add(form, BorderLayout.CENTER);
-        panel.add(createFooter("The connection and discovery services will be connected in the next client slice."), BorderLayout.SOUTH);
+        panel.add(createFooter("Enter the server address manually; LAN discovery is owned by the discovery module."), BorderLayout.SOUTH);
         return panel;
     }
 
@@ -243,11 +273,15 @@ public final class StudentFrame extends JFrame {
 
     private void joinFromForm() {
         try {
+            String serverHost = serverHostField.getText().trim();
+            if (serverHost.isBlank()) {
+                throw new IllegalArgumentException("server address is required");
+            }
             StudentJoinRequest request = new StudentJoinRequest(roomCodeField.getText(), displayNameField.getText());
             joinErrorLabel.setText(" ");
-            showLobbyScreen(request);
+            joinHandler.accept(serverHost, request);
         } catch (IllegalArgumentException exception) {
-            joinErrorLabel.setText(exception.getMessage());
+            showConnectionError(exception.getMessage());
         }
     }
 
