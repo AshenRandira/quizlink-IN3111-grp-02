@@ -14,6 +14,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import lk.quizlink.common.model.LeaderboardEntry;
+import lk.quizlink.common.model.Participant;
 import lk.quizlink.common.model.QuestionView;
 import lk.quizlink.common.protocol.Message;
 import lk.quizlink.common.protocol.MessageCodec;
@@ -253,9 +254,68 @@ class StudentClientControllerTest {
         }
     }
 
+    @Test
+    void routesParticipantsAndSendsLeaveRoom() throws Exception {
+        TestView view = new TestView(2);
+        AtomicReference<Throwable> serverFailure = new AtomicReference<>();
+        CountDownLatch leaveReceived = new CountDownLatch(1);
+        MessageCodec codec = new MessageCodec();
+        Gson gson = new Gson();
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread serverThread = new Thread(() -> {
+                try (Socket socket = server.accept();
+                     BufferedReader reader = new BufferedReader(new InputStreamReader(
+                             socket.getInputStream(), StandardCharsets.UTF_8));
+                     BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                             socket.getOutputStream(), StandardCharsets.UTF_8))) {
+                    Message join = codec.decode(reader.readLine());
+                    writer.write(codec.encode(Message.of(MessageType.ROOM_JOINED,
+                            join.requestId(), new JsonObject())));
+
+                    JsonObject participantsPayload = new JsonObject();
+                    participantsPayload.add("participants", gson.toJsonTree(List.of(
+                            new Participant("p1", "Student 1"),
+                            new Participant("p2", "Student 2"))));
+                    writer.write(codec.encode(Message.of(MessageType.PARTICIPANTS_UPDATED,
+                            "", participantsPayload)));
+                    writer.flush();
+
+                    Message leave = codec.decode(reader.readLine());
+                    assertEquals(MessageType.LEAVE_ROOM, leave.type());
+                    assertEquals("AB12CD", leave.payload().get("roomCode").getAsString());
+                    leaveReceived.countDown();
+                } catch (Throwable failure) {
+                    serverFailure.set(failure);
+                }
+            });
+            serverThread.start();
+
+            try (StudentClientController controller = new StudentClientController(
+                    view, server.getLocalPort(), Runnable::run)) {
+                controller.connectAndJoin("127.0.0.1",
+                        new StudentJoinRequest("AB12CD", "Student 1"));
+                assertTrue(view.participantsShown.await(3, TimeUnit.SECONDS));
+                assertEquals(List.of("Student 1", "Student 2"),
+                        view.participants.stream().map(Participant::displayName).toList());
+                controller.leaveRoom();
+                assertTrue(view.returnedToJoin.await(3, TimeUnit.SECONDS));
+                assertTrue(leaveReceived.await(3, TimeUnit.SECONDS));
+            }
+
+            serverThread.join(3_000);
+            assertTrue(!serverThread.isAlive(), "test server did not finish");
+            if (serverFailure.get() != null) {
+                throw new AssertionError("test server failed", serverFailure.get());
+            }
+        }
+    }
+
     private static final class TestView implements StudentClientView {
         private final CountDownLatch completed;
         private final CountDownLatch questionShown = new CountDownLatch(1);
+        private final CountDownLatch participantsShown = new CountDownLatch(1);
+        private final CountDownLatch returnedToJoin = new CountDownLatch(1);
         private StudentJoinRequest joinedRequest;
         private QuestionView question;
         private int questionNumber;
@@ -266,6 +326,7 @@ class StudentClientControllerTest {
         private boolean answerAccepted;
         private String answerReason;
         private String errorMessage;
+        private List<Participant> participants;
 
         private TestView(int expectedEvents) {
             completed = new CountDownLatch(expectedEvents);
@@ -279,6 +340,22 @@ class StudentClientControllerTest {
         public void showLobbyScreen(StudentJoinRequest request) {
             joinedRequest = request;
             completed.countDown();
+        }
+
+        @Override
+        public void showParticipants(List<Participant> participants) {
+            this.participants = participants;
+            participantsShown.countDown();
+            completed.countDown();
+        }
+
+        @Override
+        public void setLeaveHandler(Runnable leaveHandler) {
+        }
+
+        @Override
+        public void showJoinScreen() {
+            returnedToJoin.countDown();
         }
 
         @Override

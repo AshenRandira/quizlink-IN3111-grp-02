@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -15,6 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import javax.swing.SwingUtilities;
 import lk.quizlink.common.model.LeaderboardEntry;
+import lk.quizlink.common.model.Participant;
 import lk.quizlink.common.model.QuestionView;
 import lk.quizlink.common.protocol.Message;
 import lk.quizlink.common.protocol.MessageType;
@@ -25,6 +27,8 @@ public final class StudentClientController implements AutoCloseable {
     private static final Gson GSON = new Gson();
     private static final Type LEADERBOARD_TYPE =
             new TypeToken<List<LeaderboardEntry>>() { }.getType();
+    private static final Type PARTICIPANT_TYPE =
+            new TypeToken<List<Participant>>() { }.getType();
 
     private final StudentClientView view;
     private final int serverPort;
@@ -32,6 +36,7 @@ public final class StudentClientController implements AutoCloseable {
     private final ExecutorService networkExecutor;
     private final ExecutorService outgoingExecutor;
     private final Map<String, String> pendingAnswers = new ConcurrentHashMap<>();
+    private final Set<StudentTcpClient> intentionallyDisconnectedClients = ConcurrentHashMap.newKeySet();
     private volatile StudentTcpClient client;
     private volatile String activeRoomCode;
     private volatile boolean closed;
@@ -67,9 +72,10 @@ public final class StudentClientController implements AutoCloseable {
     }
 
     private void performJoin(String serverHost, StudentJoinRequest request) {
+        StudentTcpClient connectedClient = null;
         try {
             closeCurrentClient();
-            StudentTcpClient connectedClient = StudentTcpClient.connect(serverHost, serverPort);
+            connectedClient = StudentTcpClient.connect(serverHost, serverPort);
             client = connectedClient;
 
             String requestId = UUID.randomUUID().toString();
@@ -83,7 +89,9 @@ public final class StudentClientController implements AutoCloseable {
             receiveServerEvents(connectedClient);
         } catch (IOException | RuntimeException exception) {
             closeCurrentClientQuietly();
-            if (!closed) {
+            boolean intentionalDisconnect = connectedClient != null
+                    && intentionallyDisconnectedClients.remove(connectedClient);
+            if (!closed && !intentionalDisconnect) {
                 dispatch(() -> view.showConnectionError(readableMessage(exception)));
             }
         }
@@ -97,6 +105,7 @@ public final class StudentClientController implements AutoCloseable {
         if (response.type() == MessageType.ROOM_JOINED) {
             activeRoomCode = request.roomCode();
             dispatch(() -> view.setAnswerHandler(this::submitAnswer));
+            dispatch(() -> view.setLeaveHandler(this::leaveRoom));
             dispatch(() -> view.showLobbyScreen(request));
             return;
         }
@@ -142,6 +151,12 @@ public final class StudentClientController implements AutoCloseable {
                     dispatch(() -> view.showAnswerResult(questionId, accepted, reason));
                     yield true;
                 }
+                case PARTICIPANTS_UPDATED -> {
+                    List<Participant> participants = List.copyOf(GSON.fromJson(
+                            requiredArray(message.payload(), "participants"), PARTICIPANT_TYPE));
+                    dispatch(() -> view.showParticipants(participants));
+                    yield true;
+                }
                 case LEADERBOARD, QUIZ_ENDED -> {
                     List<LeaderboardEntry> entries = List.copyOf(GSON.fromJson(
                             message.payload().getAsJsonArray("entries"), LEADERBOARD_TYPE));
@@ -149,7 +164,7 @@ public final class StudentClientController implements AutoCloseable {
                     dispatch(() -> view.showLeaderboard(entries, finalResults));
                     yield !finalResults;
                 }
-                case PARTICIPANTS_UPDATED, PONG -> true;
+                case PONG -> true;
                 case ERROR -> throw new IOException(errorMessage(message.payload()));
                 default -> throw new IOException("Unexpected server message: " + message.type());
             };
@@ -173,6 +188,14 @@ public final class StudentClientController implements AutoCloseable {
             throw new IllegalArgumentException(fieldName + " must be a number");
         }
         return element.getAsInt();
+    }
+
+    private static com.google.gson.JsonArray requiredArray(JsonObject payload, String fieldName) {
+        JsonElement element = payload.get(fieldName);
+        if (element == null || !element.isJsonArray()) {
+            throw new IllegalArgumentException(fieldName + " must be an array");
+        }
+        return element.getAsJsonArray();
     }
 
     private static String requiredString(JsonObject payload, String fieldName) {
@@ -235,6 +258,33 @@ public final class StudentClientController implements AutoCloseable {
         });
     }
 
+    /** Sends LEAVE_ROOM and returns the student UI to its join screen. */
+    public void leaveRoom() {
+        String roomCode = activeRoomCode;
+        StudentTcpClient connectedClient = client;
+        if (roomCode == null || connectedClient == null) {
+            dispatch(view::showJoinScreen);
+            return;
+        }
+
+        activeRoomCode = null;
+        pendingAnswers.clear();
+        intentionallyDisconnectedClients.add(connectedClient);
+        dispatch(view::showJoinScreen);
+        outgoingExecutor.submit(() -> {
+            try {
+                JsonObject payload = new JsonObject();
+                payload.addProperty("roomCode", roomCode);
+                connectedClient.send(Message.of(MessageType.LEAVE_ROOM,
+                        UUID.randomUUID().toString(), payload));
+            } catch (IOException | RuntimeException ignored) {
+                // Leaving is best effort; the UI has already returned to the join screen.
+            } finally {
+                closeSpecificClient(connectedClient);
+            }
+        });
+    }
+
     private static String errorMessage(JsonObject payload) {
         JsonElement message = payload.get("message");
         if (message != null && message.isJsonPrimitive()
@@ -264,6 +314,17 @@ public final class StudentClientController implements AutoCloseable {
         }
     }
 
+    private void closeSpecificClient(StudentTcpClient expectedClient) {
+        if (client == expectedClient) {
+            client = null;
+        }
+        try {
+            expectedClient.close();
+        } catch (IOException ignored) {
+            // The socket is already being closed as part of leaving the room.
+        }
+    }
+
     private void closeCurrentClientQuietly() {
         try {
             closeCurrentClient();
@@ -276,6 +337,7 @@ public final class StudentClientController implements AutoCloseable {
     public void close() {
         closed = true;
         closeCurrentClientQuietly();
+        intentionallyDisconnectedClients.clear();
         networkExecutor.shutdownNow();
         outgoingExecutor.shutdownNow();
     }

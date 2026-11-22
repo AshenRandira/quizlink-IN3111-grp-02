@@ -17,14 +17,17 @@ import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
+import javax.swing.DefaultListModel;
 import javax.swing.table.DefaultTableModel;
 import lk.quizlink.common.model.LeaderboardEntry;
+import lk.quizlink.common.model.Participant;
 import lk.quizlink.common.model.QuestionView;
 
 /** Student Swing shell; network work is delegated to {@link StudentClientController}. */
@@ -45,6 +48,10 @@ public final class StudentFrame extends JFrame implements StudentClientView {
     private final JLabel joinErrorLabel = new JLabel(" ");
     private final JLabel lobbyRoomLabel = new JLabel();
     private final JLabel lobbyNameLabel = new JLabel();
+    private final JLabel participantCountLabel = new JLabel("Participants (0)");
+    private final DefaultListModel<String> participantNames = new DefaultListModel<>();
+    private final JList<String> participantList = new JList<>(participantNames);
+    private final JButton leaveRoomButton = new JButton("Leave room");
     private final JLabel questionNumberLabel = new JLabel();
     private final JLabel questionTextLabel = new JLabel();
     private final JPanel optionsPanel = new JPanel();
@@ -57,6 +64,7 @@ public final class StudentFrame extends JFrame implements StudentClientView {
             (questionId, optionIndex) -> showConnectionError("Student client is not configured");
     private String displayedQuestionId;
     private int selectedOptionIndex = -1;
+    private Runnable leaveHandler = this::showJoinScreen;
 
     public StudentFrame() {
         super("QuizLink Student");
@@ -74,6 +82,7 @@ public final class StudentFrame extends JFrame implements StudentClientView {
     }
 
     /** Shows the form used before the TCP client sends a join request. */
+    @Override
     public void showJoinScreen() {
         joinButton.setEnabled(true);
         cards.show(cardPanel, JOIN_CARD);
@@ -85,6 +94,14 @@ public final class StudentFrame extends JFrame implements StudentClientView {
             throw new IllegalArgumentException("joinHandler is required");
         }
         this.joinHandler = joinHandler;
+    }
+
+    @Override
+    public void setLeaveHandler(Runnable leaveHandler) {
+        if (leaveHandler == null) {
+            throw new IllegalArgumentException("leaveHandler is required");
+        }
+        this.leaveHandler = leaveHandler;
     }
 
     @Override
@@ -109,6 +126,15 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         lobbyRoomLabel.setText("Room: " + request.roomCode());
         lobbyNameLabel.setText("Name: " + request.displayName());
         cards.show(cardPanel, LOBBY_CARD);
+    }
+
+    @Override
+    public void showParticipants(List<Participant> participants) {
+        participantNames.clear();
+        for (Participant participant : participants) {
+            participantNames.addElement(participant.displayName());
+        }
+        participantCountLabel.setText("Participants (" + participants.size() + ")");
     }
 
     @Override
@@ -235,6 +261,19 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         content.add(lobbyNameLabel);
         content.add(Box.createVerticalStrut(28));
         content.add(waiting);
+        content.add(Box.createVerticalStrut(18));
+        participantCountLabel.setAlignmentX(CENTER_ALIGNMENT);
+        content.add(participantCountLabel);
+        JScrollPane participantScrollPane = new JScrollPane(participantList);
+        participantScrollPane.setAlignmentX(CENTER_ALIGNMENT);
+        participantScrollPane.setPreferredSize(new Dimension(320, 120));
+        participantScrollPane.setMaximumSize(new Dimension(320, 120));
+        content.add(Box.createVerticalStrut(6));
+        content.add(participantScrollPane);
+        leaveRoomButton.setAlignmentX(CENTER_ALIGNMENT);
+        leaveRoomButton.addActionListener(event -> leaveHandler.run());
+        content.add(Box.createVerticalStrut(16));
+        content.add(leaveRoomButton);
         content.add(Box.createVerticalGlue());
         panel.add(createHeader(new JLabel("Quiz lobby")), BorderLayout.NORTH);
         panel.add(content, BorderLayout.CENTER);

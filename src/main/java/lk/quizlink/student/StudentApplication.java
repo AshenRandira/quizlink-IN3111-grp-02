@@ -12,6 +12,7 @@ public final class StudentApplication {
             StudentFrame frame = new StudentFrame();
             StudentClientController controller = new StudentClientController(frame);
             frame.setJoinHandler(controller::connectAndJoin);
+            frame.setLeaveHandler(controller::leaveRoom);
             frame.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosing(WindowEvent event) {
