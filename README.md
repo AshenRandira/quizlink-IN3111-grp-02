@@ -4,7 +4,7 @@ A Java desktop quiz platform for computers on the same LAN. A host manages quizz
 
 ## Current status
 
-The shared foundation is in place and the student client is implemented as an incremental feature branch. It provides a Swing join form, manual server-host entry, lobby participant list, question display, answer submission, leaderboard display and leaving a room. It uses a blocking TCP `Socket` on background threads and the shared JSON message protocol.
+The shared foundation is in place and the student client is implemented as an incremental feature branch. It provides a Swing join form, manual server-host entry, lobby participant list, question display, answer submission, leaderboard display, leaving a room and returning to the join form after final results. It uses a blocking TCP `Socket` on background threads and the shared JSON message protocol.
 
 The central NIO server, UDP discovery, authoritative lobby management, quiz engine, host dashboard, JSON storage and multicast remain separate team modules. Until those modules are integrated, the student application can be launched and tested against a compatible server but does not constitute a complete standalone quiz system.
 

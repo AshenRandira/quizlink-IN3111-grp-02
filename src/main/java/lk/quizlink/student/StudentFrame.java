@@ -58,6 +58,7 @@ public final class StudentFrame extends JFrame implements StudentClientView {
     private final JLabel answerStatusLabel = new JLabel(" ");
     private final JButton submitAnswerButton = createPrimaryButton("Submit answer");
     private final JLabel resultsTitleLabel = new JLabel("Final leaderboard");
+    private final JButton joinAnotherRoomButton = createPrimaryButton("Join another room");
     private BiConsumer<String, StudentJoinRequest> joinHandler =
             (host, request) -> showConnectionError("Student client is not configured");
     private BiConsumer<String, Integer> answerHandler =
@@ -77,6 +78,7 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         cardPanel.add(createLobbyPanel(), LOBBY_CARD);
         cardPanel.add(createQuestionPanel(), QUESTION_CARD);
         cardPanel.add(createResultsPanel(), RESULTS_CARD);
+        joinAnotherRoomButton.addActionListener(event -> showJoinScreen());
         add(cardPanel);
         showJoinScreen();
     }
@@ -213,7 +215,7 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         resultsPanel.removeAll();
         resultsPanel.add(createHeader(resultsTitleLabel), BorderLayout.NORTH);
         resultsPanel.add(new JScrollPane(table), BorderLayout.CENTER);
-        resultsPanel.add(createFooter("The server owns the authoritative leaderboard."), BorderLayout.SOUTH);
+        resultsPanel.add(createResultsFooter(finalResults), BorderLayout.SOUTH);
         resultsPanel.revalidate();
         resultsPanel.repaint();
         cards.show(cardPanel, RESULTS_CARD);
@@ -313,8 +315,18 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         JPanel panel = createScreenPanel();
         panel.add(createHeader(resultsTitleLabel), BorderLayout.NORTH);
         panel.add(new JLabel("Results will appear when the quiz ends."), BorderLayout.CENTER);
-        panel.add(createFooter("The server owns the authoritative leaderboard."), BorderLayout.SOUTH);
+        panel.add(createResultsFooter(true), BorderLayout.SOUTH);
         return panel;
+    }
+
+    private JPanel createResultsFooter(boolean finalResults) {
+        JPanel footer = new JPanel(new BorderLayout(12, 0));
+        footer.setOpaque(false);
+        footer.add(createFooter("The server owns the authoritative leaderboard."), BorderLayout.WEST);
+        if (finalResults) {
+            footer.add(joinAnotherRoomButton, BorderLayout.EAST);
+        }
+        return footer;
     }
 
     private JPanel createScreenPanel() {

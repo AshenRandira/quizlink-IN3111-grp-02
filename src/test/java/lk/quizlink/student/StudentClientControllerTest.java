@@ -64,6 +64,7 @@ class StudentClientControllerTest {
                             new LeaderboardEntry("p1", "Student 1", 10, 1))));
                     writer.write(codec.encode(Message.of(MessageType.QUIZ_ENDED, "", resultsPayload)));
                     writer.flush();
+                    assertNull(reader.readLine(), "client should close after final results");
                 } catch (Throwable failure) {
                     serverFailure.set(failure);
                 }

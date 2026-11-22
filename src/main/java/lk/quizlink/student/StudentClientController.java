@@ -119,6 +119,7 @@ public final class StudentClientController implements AutoCloseable {
         while (!closed) {
             Message message = connectedClient.receive();
             if (!handleServerEvent(message)) {
+                closeCurrentClientQuietly();
                 return;
             }
         }
