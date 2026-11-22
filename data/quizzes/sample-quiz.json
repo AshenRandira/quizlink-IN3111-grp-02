@@ -1,0 +1,14 @@
+{
+  "id": "network-basics",
+  "title": "Computer Networking Basics",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Which transport protocol provides a reliable, ordered byte stream?",
+      "options": ["UDP", "TCP", "IP", "ICMP"],
+      "correctOptionIndex": 1,
+      "timeLimitSeconds": 20,
+      "points": 10
+    }
+  ]
+}

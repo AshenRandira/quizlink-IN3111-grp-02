@@ -1,0 +1,15 @@
+target/
+*.class
+*.log
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+.DS_Store
+Thumbs.db
+.env
+data/results/*.json
+data/quizzes/*.json
+!data/quizzes/sample-quiz.json
