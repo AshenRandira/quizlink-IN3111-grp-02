@@ -127,6 +127,8 @@ public final class StudentFrame extends JFrame implements StudentClientView {
         joinButton.setEnabled(true);
         lobbyRoomLabel.setText("Room: " + request.roomCode());
         lobbyNameLabel.setText("Name: " + request.displayName());
+        participantNames.clear();
+        participantCountLabel.setText("Participants (0)");
         cards.show(cardPanel, LOBBY_CARD);
     }
 

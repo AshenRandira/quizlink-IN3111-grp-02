@@ -103,6 +103,10 @@ public final class StudentClientController implements AutoCloseable {
             throw new IOException("Server reply did not match the join request");
         }
         if (response.type() == MessageType.ROOM_JOINED) {
+            String confirmedRoomCode = requiredString(response.payload(), "roomCode");
+            if (!request.roomCode().equals(confirmedRoomCode)) {
+                throw new IOException("Server confirmed a different quiz room");
+            }
             activeRoomCode = request.roomCode();
             dispatch(() -> view.setAnswerHandler(this::submitAnswer));
             dispatch(() -> view.setLeaveHandler(this::leaveRoom));

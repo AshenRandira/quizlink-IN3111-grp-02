@@ -132,6 +132,46 @@ class StudentClientControllerTest {
     }
 
     @Test
+    void rejectsJoinConfirmationForAnotherRoom() throws Exception {
+        TestView view = new TestView(1);
+        AtomicReference<Throwable> serverFailure = new AtomicReference<>();
+        MessageCodec codec = new MessageCodec();
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread serverThread = new Thread(() -> {
+                try (Socket socket = server.accept();
+                     BufferedReader reader = new BufferedReader(new InputStreamReader(
+                             socket.getInputStream(), StandardCharsets.UTF_8));
+                     BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                             socket.getOutputStream(), StandardCharsets.UTF_8))) {
+                    Message join = codec.decode(reader.readLine());
+                    writer.write(codec.encode(Message.of(MessageType.ROOM_JOINED,
+                            join.requestId(), roomJoinedPayload("OTHER1"))));
+                    writer.flush();
+                } catch (Throwable failure) {
+                    serverFailure.set(failure);
+                }
+            });
+            serverThread.start();
+
+            try (StudentClientController controller = new StudentClientController(
+                    view, server.getLocalPort(), Runnable::run)) {
+                controller.connectAndJoin("127.0.0.1",
+                        new StudentJoinRequest("AB12CD", "Student 1"));
+                assertTrue(view.connectionErrorShown.await(3, TimeUnit.SECONDS));
+                assertEquals("Server confirmed a different quiz room", view.errorMessage);
+                assertNull(view.joinedRequest);
+            }
+
+            serverThread.join(3_000);
+            assertTrue(!serverThread.isAlive(), "test server did not finish");
+            if (serverFailure.get() != null) {
+                throw new AssertionError("test server failed", serverFailure.get());
+            }
+        }
+    }
+
+    @Test
     void sendsSelectedAnswerAndShowsServerAcknowledgement() throws Exception {
         TestView view = new TestView(3);
         AtomicReference<Throwable> serverFailure = new AtomicReference<>();
@@ -147,7 +187,7 @@ class StudentClientControllerTest {
                              socket.getOutputStream(), StandardCharsets.UTF_8))) {
                     Message join = codec.decode(reader.readLine());
                     writer.write(codec.encode(Message.of(MessageType.ROOM_JOINED,
-                            join.requestId(), new JsonObject())));
+                            join.requestId(), roomJoinedPayload("AB12CD"))));
 
                     JsonObject questionPayload = new JsonObject();
                     questionPayload.addProperty("roomCode", "AB12CD");
@@ -212,7 +252,7 @@ class StudentClientControllerTest {
                              socket.getOutputStream(), StandardCharsets.UTF_8))) {
                     Message join = codec.decode(reader.readLine());
                     writer.write(codec.encode(Message.of(MessageType.ROOM_JOINED,
-                            join.requestId(), new JsonObject())));
+                            join.requestId(), roomJoinedPayload("AB12CD"))));
 
                     JsonObject questionPayload = new JsonObject();
                     questionPayload.addProperty("roomCode", "AB12CD");
@@ -274,7 +314,7 @@ class StudentClientControllerTest {
                              socket.getOutputStream(), StandardCharsets.UTF_8))) {
                     Message join = codec.decode(reader.readLine());
                     writer.write(codec.encode(Message.of(MessageType.ROOM_JOINED,
-                            join.requestId(), new JsonObject())));
+                            join.requestId(), roomJoinedPayload("AB12CD"))));
 
                     JsonObject participantsPayload = new JsonObject();
                     participantsPayload.addProperty("roomCode", "AB12CD");
@@ -331,7 +371,7 @@ class StudentClientControllerTest {
                              socket.getOutputStream(), StandardCharsets.UTF_8))) {
                     Message join = codec.decode(reader.readLine());
                     writer.write(codec.encode(Message.of(MessageType.ROOM_JOINED,
-                            join.requestId(), new JsonObject())));
+                            join.requestId(), roomJoinedPayload("AB12CD"))));
 
                     JsonObject participantsPayload = new JsonObject();
                     participantsPayload.addProperty("roomCode", "OTHER1");
@@ -361,6 +401,12 @@ class StudentClientControllerTest {
                 throw new AssertionError("test server failed", serverFailure.get());
             }
         }
+    }
+
+    private static JsonObject roomJoinedPayload(String roomCode) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("roomCode", roomCode);
+        return payload;
     }
 
     private static final class TestView implements StudentClientView {
