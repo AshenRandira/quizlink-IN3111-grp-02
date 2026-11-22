@@ -172,6 +172,45 @@ class StudentClientControllerTest {
     }
 
     @Test
+    void showsFriendlyMessageWhenServerDisconnectsAfterJoin() throws Exception {
+        TestView view = new TestView(1);
+        AtomicReference<Throwable> serverFailure = new AtomicReference<>();
+        MessageCodec codec = new MessageCodec();
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread serverThread = new Thread(() -> {
+                try (Socket socket = server.accept();
+                     BufferedReader reader = new BufferedReader(new InputStreamReader(
+                             socket.getInputStream(), StandardCharsets.UTF_8));
+                     BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                             socket.getOutputStream(), StandardCharsets.UTF_8))) {
+                    Message join = codec.decode(reader.readLine());
+                    writer.write(codec.encode(Message.of(MessageType.ROOM_JOINED,
+                            join.requestId(), roomJoinedPayload("AB12CD"))));
+                    writer.flush();
+                } catch (Throwable failure) {
+                    serverFailure.set(failure);
+                }
+            });
+            serverThread.start();
+
+            try (StudentClientController controller = new StudentClientController(
+                    view, server.getLocalPort(), Runnable::run)) {
+                controller.connectAndJoin("127.0.0.1",
+                        new StudentJoinRequest("AB12CD", "Student 1"));
+                assertTrue(view.connectionErrorShown.await(3, TimeUnit.SECONDS));
+                assertEquals("Connection to the QuizLink server was closed", view.errorMessage);
+            }
+
+            serverThread.join(3_000);
+            assertTrue(!serverThread.isAlive(), "test server did not finish");
+            if (serverFailure.get() != null) {
+                throw new AssertionError("test server failed", serverFailure.get());
+            }
+        }
+    }
+
+    @Test
     void sendsSelectedAnswerAndShowsServerAcknowledgement() throws Exception {
         TestView view = new TestView(3);
         AtomicReference<Throwable> serverFailure = new AtomicReference<>();
