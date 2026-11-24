@@ -1,13 +1,19 @@
 package lk.quizlink.host;
 
-import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 
-/** Member 5 replaces this launch placeholder with the host dashboard. */
+/**
+ * Main application launcher for the QuizLink host and administration dashboard.
+ */
 public final class HostApplication {
+
+    private HostApplication() {
+    }
+
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
-                "QuizLink host foundation is ready.\nQuiz management and session controls are pending.",
-                "QuizLink Host", JOptionPane.INFORMATION_MESSAGE));
+        SwingUtilities.invokeLater(() -> {
+            HostFrame frame = new HostFrame();
+            frame.setVisible(true);
+        });
     }
 }
