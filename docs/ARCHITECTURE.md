@@ -26,6 +26,10 @@ Student and host Swing applications connect to one central server over TCP. Clie
 - JSON files under `data/quizzes/` and `data/results/` are resolved relative to the repository root. Only the sample quiz is tracked.
 - Multicast is for announcements. Questions, answers and authoritative scores remain on TCP.
 
-## Work still required
+## Implementation status and integration handoff
 
-No transport, lobby, quiz engine, storage service or announcement service is implemented yet. Confirm service APIs between owners before adding dependencies. In particular, decide how a host connection is authorized to control its room, how the server obtains quiz definitions, and how quiz workers deliver results back to the Selector thread. Do not treat a message's declared role or participant ID as proof of authority.
+The shared `common` foundation is implemented: validated models, the JSON message envelope and codec, message types, protocol constants, and Gson compatibility tests are in place. The Student client is also implemented: its Swing interface uses a blocking TCP `Socket` on background threads to join a room, receive lobby/question/leaderboard events, submit answers, leave a room, and recover from a lost server connection. The client validates correlated replies and room-scoped events before updating the UI.
+
+The central NIO server, UDP discovery, authoritative lobby, quiz engine, host dashboard, JSON storage and multicast services remain to be implemented by their assigned owners. Integration should use `docs/PROTOCOL.md` as the shared payload contract. In particular, the server must preserve a direct request's `requestId`, send empty `requestId` values for unsolicited events, include `roomCode` on room-scoped events, and send `QuestionView` rather than `Question` to students.
+
+Before full integration, agree how a host connection is authorized to control its room, how the server obtains quiz definitions, and how quiz workers deliver results back to the Selector thread. Do not treat a message's declared role or participant ID as proof of authority.
