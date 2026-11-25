@@ -163,11 +163,17 @@ class TcpHostGatewayTest {
     @Test
     void unsolicitedEventReachesEventListener() throws Exception {
         CountDownLatch eventLatch = new CountDownLatch(1);
+        CountDownLatch listenerRegistered = new CountDownLatch(1);
         AtomicReference<Message> receivedEvent = new AtomicReference<>();
 
         CompletableFuture<Void> serverTask = CompletableFuture.runAsync(() -> {
             try {
                 acceptClient();
+                // The gateway's reader starts in its constructor, so an event sent before
+                // setEventListener() would be dropped. Wait until the listener is in place.
+                if (!listenerRegistered.await(2, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Event listener was not registered in time");
+                }
                 // Send unsolicited server event with empty requestId
                 JsonObject eventPayload = new JsonObject();
                 eventPayload.addProperty("roomCode", "RM9999");
@@ -183,6 +189,7 @@ class TcpHostGatewayTest {
                 receivedEvent.set(msg);
                 eventLatch.countDown();
             });
+            listenerRegistered.countDown();
 
             serverTask.get(2, TimeUnit.SECONDS);
 
