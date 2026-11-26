@@ -6,7 +6,9 @@ A Java desktop quiz platform for computers on the same LAN. A host manages quizz
 
 The shared foundation is in place and the student client is implemented as an incremental feature branch. It provides a Swing join form, manual server-host entry, lobby participant list, question display, answer submission, leaderboard display, leaving a room and returning to the join form after final results. It uses a blocking TCP `Socket` on background threads and the shared JSON message protocol.
 
-The central NIO server, UDP discovery, authoritative lobby management, quiz engine, host dashboard, JSON storage and multicast remain separate team modules. Until those modules are integrated, the student application can be launched and tested against a compatible server but does not constitute a complete standalone quiz system.
+The quiz engine (`lk.quizlink.quiz`) is implemented: it runs sessions, timed questions, answer validation, scoring and leaderboards on its own worker and timer threads, ready for the NIO server to call. See [the quiz engine guide](docs/QUIZ_ENGINE.md).
+
+The central NIO server, UDP discovery and authoritative lobby management remain separate team modules. Until those modules are integrated, the student application can be launched and tested against a compatible server but does not constitute a complete standalone quiz system.
 
 ## Technology
 
@@ -32,6 +34,12 @@ Use separate terminals from the repository root:
 mvn compile exec:java -Dexec.mainClass=lk.quizlink.server.ServerApplication
 mvn compile exec:java -Dexec.mainClass=lk.quizlink.host.HostApplication
 mvn compile exec:java -Dexec.mainClass=lk.quizlink.student.StudentApplication
+```
+
+To demonstrate the quiz engine on its own (simulated students answering concurrently, no network needed):
+
+```bash
+mvn compile exec:java -Dexec.mainClass=lk.quizlink.quiz.QuizEngineDemo
 ```
 
 The server and host launchers remain module placeholders until their owners complete them. The student launcher opens the working Swing client and requires a graphical desktop.
